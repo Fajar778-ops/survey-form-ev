@@ -74,7 +74,7 @@ export async function POST(request: Request) {
 
     const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 
-    return new NextResponse(buf, {
+    return new NextResponse(buf as any, {
       status: 200,
       headers: {
         "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
@@ -85,4 +85,4 @@ export async function POST(request: Request) {
     console.error("Error generating docx:", error);
     return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
   }
-}
+} catch (error: any) {
