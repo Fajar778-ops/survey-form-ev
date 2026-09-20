@@ -4,14 +4,12 @@ import Docxtemplater from "docxtemplater";
 import fs from "fs";
 import path from "path";
 
-// Menggunakan fork package yang lebih baru dan stabil
 const ImageModule = require("@slosarek/docxtemplater-image-module-free");
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     
-    // Gambar PNG transparan 1x1 pixel untuk form yang tidak diisi fotonya
     const blankImage = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
       "base64"
@@ -19,13 +17,11 @@ export async function POST(request: Request) {
 
     const getBuffer = async (fieldName: string) => {
       const file = formData.get(fieldName) as File | null;
-      if (!file || typeof file === "string" || file.size === 0) {
-        return blankImage;
-      }
-      return Buffer.from(await file.arrayBuffer());
+      if (!file || typeof file === "string" || file.size === 0) return blankImage;
+      const arrayBuffer = await file.arrayBuffer();
+      return Buffer.from(arrayBuffer);
     };
 
-    // Kembali menggunakan template asli Anda
     const templatePath = path.resolve(process.cwd(), "public", "template_2.docx");
     const content = fs.readFileSync(templatePath, "binary");
     const zip = new PizZip(content);
@@ -38,7 +34,7 @@ export async function POST(request: Request) {
       },
       getSize(img: any, tagValue: any) {
         if (tagValue === blankImage) return [1, 1];
-        return [300, 225]; 
+        return [300, 225];
       },
     };
     
@@ -55,41 +51,33 @@ export async function POST(request: Request) {
       if (typeof value === "string") textData[key] = value;
     }
 
-    const foto_lokasi = await getBuffer("foto_lokasi");
-    const foto_kwh = await getBuffer("foto_kwh");
-    const foto_area = await getBuffer("foto_area");
-    const foto_exkwh = await getBuffer("foto_exkwh");
-    const foto_cctv = await getBuffer("foto_cctv");
-    const foto_jalur = await getBuffer("foto_jalur");
-
     doc.render({
       ...textData,
-      foto_lokasi,
-      foto_kwh,
-      foto_area,
-      foto_exkwh,
-      foto_cctv,
-      foto_jalur,
+      foto_lokasi: await getBuffer("foto_lokasi"),
+      foto_kwh: await getBuffer("foto_kwh"),
+      foto_area: await getBuffer("foto_area"),
+      foto_exkwh: await getBuffer("foto_exkwh"),
+      foto_cctv: await getBuffer("foto_cctv"),
+      foto_jalur: await getBuffer("foto_jalur"),
     });
 
+    // 1. Ekstrak sebagai Uint8Array murni bawaan Web
+    const uint8Data = doc.getZip().generate({ type: "uint8array", compression: "DEFLATE" });
+    
+    // 2. Bungkus ke dalam objek Blob (Tidak mungkin ditolak oleh Vercel/TypeScript)
+    const fileBlob = new Blob([uint8Data], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    });
 
-    // 1. Generate file sebagai Node Buffer
-    const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
-
-    // 2. KONVERSI WAJIB TYPESCRIPT: Ubah Node Buffer ke standar Web API
-    const webBuffer = new Uint8Array(buf);
-
-    // 3. Gunakan 'Response' standar web (bukan NextResponse)
-    return new Response(webBuffer, {
+    // 3. Kirim NextResponse yang sudah bersih dari error TypeScript
+    return new NextResponse(fileBlob, {
       status: 200,
       headers: {
         "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
-        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       },
     });
   } catch (error: any) {
     console.error("Error generating docx:", error);
-    // NextResponse masih aman digunakan khusus untuk respons berformat JSON (error)
     return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
   }
 }
