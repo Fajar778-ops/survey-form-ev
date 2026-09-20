@@ -72,12 +72,17 @@ export async function POST(request: Request) {
       foto_jalur,
     });
 
-    const buf = doc.getZip().generate({ type: "uint8array", compression: "DEFLATE" });
+    const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 
     return new NextResponse(buf, {
-  status: 200,
-  headers: {
+    status: 200,
+    headers: {
     "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
     "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  },
-});
+      },
+  });
+  } catch (error: any) {
+    console.error("Error generating docx:", error);
+    return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
+  }
+} catch (error: any) {
