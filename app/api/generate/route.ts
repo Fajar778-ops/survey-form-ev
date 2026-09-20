@@ -72,17 +72,25 @@ export async function POST(request: Request) {
       foto_jalur,
     });
 
+    doc.render();
+
+    // 1. Generate file sebagai Node Buffer
     const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 
-    return new NextResponse(buf, {
-    status: 200,
-    headers: {
-    "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
-    "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    // 2. KONVERSI WAJIB TYPESCRIPT: Ubah Node Buffer ke standar Web API
+    const webBuffer = new Uint8Array(buf);
+
+    // 3. Gunakan 'Response' standar web (bukan NextResponse)
+    return new Response(webBuffer, {
+      status: 200,
+      headers: {
+        "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       },
-  });
+    });
   } catch (error: any) {
     console.error("Error generating docx:", error);
+    // NextResponse masih aman digunakan khusus untuk respons berformat JSON (error)
     return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
   }
-} catch (error: any) {
+}
