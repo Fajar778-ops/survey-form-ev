@@ -72,7 +72,6 @@ export async function POST(request: Request) {
       foto_jalur,
     });
 
-    doc.render();
 
     // 1. Generate file sebagai Node Buffer
     const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
