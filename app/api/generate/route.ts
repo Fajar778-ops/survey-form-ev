@@ -61,11 +61,11 @@ export async function POST(request: Request) {
       foto_jalur: await getBuffer("foto_jalur"),
     });
 
-    // 1. Jadikan uint8array (Tipe data standar Web)
-    const uint8Data = doc.getZip().generate({ type: "uint8array", compression: "DEFLATE" });
+    // Generate output
+    const outData = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 
-    // 2. Gunakan 'Response' standar web, BUKAN NextResponse!
-    return new Response(uint8Data, {
+    // Paksa TypeScript diam dengan "as any" dan gunakan standar Web Response
+    return new Response(outData as any, {
       status: 200,
       headers: {
         "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
@@ -74,7 +74,6 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("Error generating docx:", error);
-    // NextResponse hanya dipakai untuk melempar error JSON, ini diizinkan Vercel
     return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
   }
 }
