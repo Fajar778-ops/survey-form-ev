@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { NextResponse } from "next/server";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
@@ -62,9 +61,11 @@ export async function POST(request: Request) {
       foto_jalur: await getBuffer("foto_jalur"),
     });
 
-    const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    // 1. Jadikan uint8array (Tipe data standar Web)
+    const uint8Data = doc.getZip().generate({ type: "uint8array", compression: "DEFLATE" });
 
-    return new NextResponse(buf, {
+    // 2. Gunakan 'Response' standar web, BUKAN NextResponse!
+    return new Response(uint8Data, {
       status: 200,
       headers: {
         "Content-Disposition": `attachment; filename="Survey_${textData.proyek || "Report"}.docx"`,
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("Error generating docx:", error);
+    // NextResponse hanya dipakai untuk melempar error JSON, ini diizinkan Vercel
     return NextResponse.json({ error: "Gagal memproses dokumen", detail: error.message }, { status: 500 });
   }
 }
