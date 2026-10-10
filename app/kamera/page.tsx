@@ -5,9 +5,14 @@ export default function KameraFilter() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  const activeFilter = "/filter-depan.png";
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   
+  const [unitType, setUnitType] = useState("DC60");
+  const [unitCount, setUnitCount] = useState(1);
+
+  const separator = unitType.startsWith("DC") ? "_" : "-";
+  const finalFilterPath = `/filter-${unitType}${separator}${unitCount}.png`;
+
   const [locationInfo, setLocationInfo] = useState({
     lat: "-",
     lng: "-",
@@ -42,15 +47,16 @@ export default function KameraFilter() {
           const lng = position.coords.longitude.toFixed(6);
 
           try {
-            // Mengambil data alamat lengkap
             const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
             const data = await res.json();
             
             if (data && data.display_name) {
               const parts = data.display_name.split(", ");
-              // Membagi alamat jadi Judul Utama (Kota, Provinsi, Negara) dan Detail Jalan
               const title = parts.slice(-3).join(", ");
-              const detail = parts.slice(0, 4).join(", ") + " --, Indonesia";
+              // Memotong detail teks agar tidak terlalu panjang dan keluar layar
+              let detail = parts.slice(0, 4).join(", ");
+              if (detail.length > 45) detail = detail.substring(0, 45) + "...";
+              detail += " --, ID";
               
               setLocationInfo({ lat, lng, title, detail });
             }
@@ -66,7 +72,6 @@ export default function KameraFilter() {
     }
   };
 
-  // Fungsi memuat Minimap dari OpenStreetMap
   const loadMinimap = (lat: string, lng: string): Promise<HTMLImageElement | null> => {
     return new Promise((resolve) => {
       if (lat === "-" || lng === "-") return resolve(null);
@@ -78,15 +83,13 @@ export default function KameraFilter() {
       const yTile = Math.floor((1.0 - Math.log(Math.tan(latRad) + (1 / Math.cos(latRad))) / Math.PI) / 2.0 * n);
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; // Syarat wajib agar Canvas tidak error (CORS)
+      img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
-      // Memanggil potongan peta jalan asli
       img.src = `https://tile.openstreetmap.org/${zoom}/${xTile}/${yTile}.png`;
     });
   };
 
-  // Format tanggal custom persis seperti GPS Map Camera
   const getFormattedDateTime = () => {
     const now = new Date();
     const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -113,53 +116,62 @@ export default function KameraFilter() {
       const ctx = canvas.getContext("2d");
 
       if (ctx) {
+        // Menggunakan resolusi murni bawaan dari kamera HP agar filter dan teks selalu muat
         canvas.width = video.videoWidth || 1280;
         canvas.height = video.videoHeight || 960;
 
-        // 1. Gambar Asli
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // 2. Tumpuk Filter Marking
         const filterImg = new Image();
-        filterImg.src = activeFilter;
+        filterImg.src = finalFilterPath; 
         await new Promise((resolve) => {
           filterImg.onload = () => {
-            ctx.drawImage(filterImg, 0, 0, canvas.width, canvas.height);
+            // Kalkulasi anti-gepeng agar filter menyesuaikan kanvas alami
+            const hRatio = canvas.width / filterImg.width;
+            const vRatio = canvas.height / filterImg.height;
+            const ratio = Math.max(hRatio, vRatio); 
+            
+            const newWidth = filterImg.width * ratio;
+            const newHeight = filterImg.height * ratio;
+            
+            const x = (canvas.width - newWidth) / 2;
+            const y = (canvas.height - newHeight) / 2;
+
+            ctx.drawImage(
+              filterImg, 
+              0, 0, filterImg.width, filterImg.height, 
+              x, y, newWidth, newHeight                
+            );
             resolve(true);
           };
+          filterImg.onerror = () => {
+             console.warn("Gambar filter tidak ditemukan:", finalFilterPath);
+             resolve(true);
+          }
         });
 
-        // 3. Tarik Minimap Peta
         const mapImg = await loadMinimap(locationInfo.lat, locationInfo.lng);
-
-        // 4. Gambar Watermark GPS Map Camera
         drawGPSWatermark(ctx, canvas.width, canvas.height, mapImg);
 
-        // 5. Selesai, render ke layar
         const mergedDataUrl = canvas.toDataURL("image/png");
         setCapturedImage(mergedDataUrl);
       }
     }
   };
 
-const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: number, mapImg: HTMLImageElement | null) => {
-    const boxMargin = 15; // Jarak luar kotak ke tepi layar
-    const boxPadding = 15; // Jarak dalam kotak (ruang bernapas)
+  const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: number, mapImg: HTMLImageElement | null) => {
+    const boxMargin = 15; 
+    const boxPadding = 15; 
     const boxWidth = width - (boxMargin * 2);
     
-    // 1. Kalkulasi Font yang Sedikit Lebih Kecil & Proporsional
     const titleFontSize = Math.max(16, Math.floor(width * 0.03));
-    const detailFontSize = Math.max(12, Math.floor(width * 0.02));
-    const lineSpacing = detailFontSize + 8; // Spasi antar baris teks
+    const detailFontSize = Math.max(12, Math.floor(width * 0.022));
+    const lineSpacing = detailFontSize + 8; 
 
-    // 2. Ukuran map dibuat dinamis, pas untuk menutupi tinggi 4 baris teks (tidak sisa space)
     const mapSize = Math.floor(lineSpacing * 3.8); 
-    
-    // 3. TINGGI KOTAK OTOMATIS: Dihitung dari jumlah isi (Padding + Judul + Jarak + Ukuran Map + Padding)
     const boxHeight = (boxPadding * 2) + titleFontSize + 12 + mapSize;
-    const boxY = boxMargin; // Tetap di atas
+    const boxY = boxMargin; 
     
-    // Gambar Background Hitam Transparan
     ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
     if (ctx.roundRect) {
       ctx.roundRect(boxMargin, boxY, boxWidth, boxHeight, 15);
@@ -168,24 +180,18 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
     }
     ctx.fill();
 
-    // Tulis Judul Lokasi 
     ctx.fillStyle = "#FFFFFF";
     ctx.font = `bold ${titleFontSize}px sans-serif`;
     ctx.fillText(locationInfo.title, boxMargin + boxPadding, boxY + boxPadding + titleFontSize);
 
-    // Titik Awal Gambar Map
     const mapX = boxMargin + boxPadding;
     const mapY = boxY + boxPadding + titleFontSize + 12;
-    
-    // Titik Awal Teks di sebelah Map
     const textX = mapX + mapSize + 15;
-    let textY = mapY + detailFontSize - 2; // Sejajarkan baris pertama dengan pucuk atas map
+    let textY = mapY + detailFontSize - 2; 
 
-    // Gambar Minimap
     if (mapImg) {
       ctx.drawImage(mapImg, mapX, mapY, mapSize, mapSize);
       
-      // Pin Merah (Ukurannya sekarang dinamis mengikuti ukuran map)
       ctx.beginPath();
       ctx.arc(mapX + (mapSize/2), mapY + (mapSize/2), mapSize * 0.06, 0, 2 * Math.PI); 
       ctx.fillStyle = "#ff0000";
@@ -194,7 +200,6 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
       ctx.strokeStyle = "#ffffff";
       ctx.stroke();
       
-      // Efek view biru (Juga dinamis mengikuti map)
       ctx.beginPath();
       ctx.moveTo(mapX + (mapSize/2), mapY + (mapSize/2));
       ctx.lineTo(mapX + (mapSize/2) - (mapSize * 0.15), mapY + (mapSize/2) + (mapSize * 0.25));
@@ -206,7 +211,6 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
       ctx.fillRect(mapX, mapY, mapSize, mapSize);
     }
 
-    // Gambar Teks Detail
     ctx.fillStyle = "#FFFFFF";
     ctx.font = `${detailFontSize}px sans-serif`;
     ctx.fillText(`🇮🇩 ${locationInfo.detail}`, textX, textY);
@@ -220,31 +224,32 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
     textY += lineSpacing;
     ctx.fillStyle = "#38bdf8"; 
     ctx.font = `bold ${detailFontSize}px sans-serif`;
-    ctx.fillText("Note : Captured by Surveyor App", textX, textY);
+    ctx.fillText("Note : Captured by EV Surveyor App", textX, textY);
   };
 
   return (
     <div className="max-w-md mx-auto p-4 bg-gray-900 min-h-screen text-white flex flex-col items-center justify-center">
-      <h1 className="text-xl font-bold mb-4 text-center">
-        Kamera Surveyor EV<br/>
-        <span className="text-sm font-normal text-gray-400">GPS Map Camera Mode</span>
+      <h1 className="text-xl font-bold mb-2 text-center">
+        Kamera Survey EV
       </h1>
 
-      {!capturedImage ? (
-        <div className="relative w-full bg-black rounded-lg overflow-hidden flex justify-center items-center shadow-xl border border-gray-700">
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            className="w-full h-auto object-cover"
-          />
-          <img 
-            src={activeFilter} 
-            alt="Filter Marking" 
-            className="absolute top-0 left-0 w-full h-full object-cover pointer-events-none opacity-80"
-          />
-        </div>
-      ) : (
+      {/* Kamera dibiarkan menyala di latar belakang (hidden) agar instan saat diulang */}
+      <div className={`relative w-full bg-black rounded-lg overflow-hidden flex justify-center items-center shadow-xl border border-gray-700 ${capturedImage ? 'hidden' : 'block'}`}>
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          className="w-full h-auto"
+        />
+        <img 
+          src={finalFilterPath} 
+          alt="Filter Marking" 
+          className="absolute top-0 left-0 w-full h-full object-cover pointer-events-none opacity-85"
+        />
+      </div>
+
+      {/* Tampilan Hasil Foto */}
+      {capturedImage && (
         <div className="w-full rounded-lg overflow-hidden border-2 border-green-500 shadow-xl">
           <img src={capturedImage} alt="Hasil Jepretan" className="w-full h-auto" />
         </div>
@@ -252,25 +257,63 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
 
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="w-full mt-6 space-y-4">
+      {/* Menu Pilihan Tipe & Jumlah */}
+      <div className="w-full mt-4 space-y-3">
         {!capturedImage ? (
-          <button 
-            onClick={handleCapture}
-            className="w-full bg-blue-600 py-4 rounded-xl font-bold text-lg hover:bg-blue-500 transition-all shadow-lg flex justify-center items-center gap-2"
-          >
-            📸 Jepret dengan GPS Stamp
-          </button>
-        ) : (
-          <div className="flex gap-4">
+          <>
+            <div className="bg-gray-800 p-3 rounded-xl border border-gray-700">
+              <div className="mb-3">
+                <label className="text-xs text-gray-400 block mb-1">Pilih Tipe Unit</label>
+                <select 
+                  value={unitType}
+                  onChange={(e) => setUnitType(e.target.value)}
+                  className="w-full bg-gray-700 text-white text-sm font-bold p-2.5 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="DC60">DC 60</option>
+                  <option value="DC20">DC 20</option>
+                  <option value="BSS6">BSS 6</option>
+                  <option value="BSS12">BSS 12</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Jumlah Unit:</label>
+                <div className="flex justify-between gap-2">
+                  {[1, 2, 3, 4, 5].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setUnitCount(num)}
+                      className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all shadow-md ${
+                        unitCount === num 
+                          ? "bg-blue-500 text-white border-2 border-blue-300 scale-105" 
+                          : "bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600"
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <button 
-              onClick={() => setCapturedImage(null)}
+              onClick={handleCapture}
+              className="w-full bg-blue-600 py-4 rounded-xl font-bold text-lg hover:bg-blue-500 transition-all shadow-lg flex justify-center items-center gap-2"
+            >
+              📸 {unitCount}x {unitType}
+            </button>
+          </>
+        ) : (
+          <div className="flex gap-4 mt-4">
+            <button 
+              onClick={() => setCapturedImage(null)} // Tidak butuh startCamera lagi karena video hanya di-hidden
               className="flex-1 bg-gray-700 py-3 rounded-lg font-bold hover:bg-gray-600"
             >
               🔄 Ulangi
             </button>
             <a 
               href={capturedImage}
-              download="Survey_GPS_Stamped.png"
+              download={`Survey_${unitType}_${unitCount}Unit.png`}
               className="flex-1 bg-green-600 py-3 rounded-lg font-bold text-center hover:bg-green-500 shadow-lg"
             >
               ⬇️ Simpan Foto
@@ -279,7 +322,7 @@ const drawGPSWatermark = (ctx: CanvasRenderingContext2D, width: number, height: 
         )}
       </div>
       
-      <a href="/" className="mt-8 text-sm text-gray-400 hover:text-white underline">
+      <a href="/" className="mt-6 block text-center text-sm text-gray-400 hover:text-white underline pb-4">
         ⬅ Kembali ke Form Laporan
       </a>
     </div>
