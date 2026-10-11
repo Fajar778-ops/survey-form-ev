@@ -7,7 +7,7 @@ import ImageModule from "docxtemplater-image-module-free";
 import { saveAs } from "file-saver";
 import * as pdfjsLib from "pdfjs-dist";
 
-// Setup Worker PDF.js agar jalan mulus di Next.js
+// Setup Worker PDF.js
 if (typeof window !== "undefined") {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
@@ -66,8 +66,7 @@ export default function FormLaporan() {
     try {
       setIsGenerating(true);
 
-      // --- FUNGSI BANTUAN AMAN DARI SSR ---
-      // Diletakkan di dalam sini agar 'window' hanya dipanggil saat tombol diklik (Client-side)
+      // --- FUNGSI BANTUAN MEMBACA FILE MENJADI BUFFER (AMAN) ---
       const base64ToArrayBuffer = (base64: string) => {
         const binaryString = window.atob(base64);
         const len = binaryString.length;
@@ -75,7 +74,7 @@ export default function FormLaporan() {
         for (let i = 0; i < len; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        return bytes.buffer;
+        return bytes.buffer; 
       };
 
       const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
@@ -87,7 +86,7 @@ export default function FormLaporan() {
         });
       };
 
-      // Buat gambar kosong 1x1 Pixel
+      // Buat gambar kosong 1x1 Pixel (Transparan)
       const blankImageBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
       const blankImageBuffer = base64ToArrayBuffer(blankImageBase64);
 
@@ -121,19 +120,20 @@ export default function FormLaporan() {
         data[`q_${key}`] = item.checked ? item.qty : "";
       });
 
-      // 4. Siapkan Data Gambar/Foto Utama
-      const imageBuffers: { [key: string]: ArrayBuffer } = {};
+      // 4. Siapkan Kamus Penyimpanan Gambar Asli (Dictionary)
+      // Kita TIDAK menyimpan gambar mentah ke dalam variabel "data", 
+      // melainkan menyimpannya ke brankas rahasia "imageDictionary"
+      const imageDictionary: { [key: string]: ArrayBuffer } = {};
       const fotoKeys = ["dokumentasi_lokasi", "foto_kwh", "foto_areaCS", "foto_pondasi", "foto_cctv", "foto_jalur_kabel", "foto_eks_pole"];
       
       for (const key of fotoKeys) {
-        // Deklarasikan key agar docxtemplater tidak undefined saat tag kosong
-        data[key] = key; 
+        data[key] = key; // Tulis kata kuncinya (String) ke Word
         if (files[key]) {
-          imageBuffers[key] = await readFileAsArrayBuffer(files[key]!);
+          imageDictionary[key] = await readFileAsArrayBuffer(files[key]!);
         }
       }
 
-      // 5. Proses PDF menjadi Array of Images
+      // 5. Proses PDF (Ubah setiap halamannya jadi gambar)
       if (files.spk_pdf) {
         const arrayBuffer = await readFileAsArrayBuffer(files.spk_pdf);
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -151,9 +151,15 @@ export default function FormLaporan() {
             await page.render({ canvasContext: ctx, viewport: viewport }).promise;
             
             const base64Data = canvas.toDataURL("image/png").replace(/^data:image\/(png|jpg|jpeg);base64,/, "");
-            images.push({
-              foto_halaman_spk: base64ToArrayBuffer(base64Data) 
-            });
+            
+            // Beri nama unik untuk setiap halaman
+            const pageKey = `spk_page_${i}`;
+            
+            // Masukkan cuma nama kuncinya (String) ke Word
+            images.push({ foto_halaman_spk: pageKey }); 
+            
+            // Simpan gambar mentahnya di brankas
+            imageDictionary[pageKey] = base64ToArrayBuffer(base64Data);
           }
         }
         data.lembar_spk = images;
@@ -164,19 +170,18 @@ export default function FormLaporan() {
       // 6. Konfigurasi Image Module
       const imageOptions = {
         getImage: (tagValue: string, tagName: string) => {
-          if (tagName === "foto_halaman_spk") return tagValue; 
-          
-          if (imageBuffers[tagName]) {
-            return imageBuffers[tagName];
+          // tagValue sekarang PASTI berbentuk String (nama kunci)
+          if (imageDictionary[tagValue]) {
+            return imageDictionary[tagValue];
           }
-          // Kembalikan gambar kosong transparan jika foto tidak di-upload
+          // Jika gambar tidak ada di brankas, kasih gambar transparan
           return blankImageBuffer; 
         },
         getSize: (img: any, tagValue: string, tagName: string) => {
           if (tagName === "foto_halaman_spk") return [600, 850]; 
           
-          // Perkecil jadi 1x1 pixel agar Word tidak bolong/error jika foto kosong
-          if (!imageBuffers[tagName] && tagName !== "foto_halaman_spk") {
+          // Jika gambar kosong, paksa ukurannya jadi titik 1x1 piksel
+          if (!imageDictionary[tagValue] && tagName !== "foto_halaman_spk") {
             return [1, 1];
           }
           return [300, 400]; // Ukuran normal
@@ -185,12 +190,18 @@ export default function FormLaporan() {
 
       const imageModule = new ImageModule(imageOptions);
 
-      // 7. Proses Kompilasi
+      // 7. Proses Kompilasi Docxtemplater
       const zip = new PizZip(templateBuffer);
       const doc = new Docxtemplater(zip, {
         modules: [imageModule],
         paragraphLoop: true,
         linebreaks: true,
+        // Ini penjaga terakhir: Jika ada Tag typo/tidak dikenal di Word, biarkan kosong tanpa crash
+        nullGetter(part) {
+          if (!part.module) return "";
+          if (part.module === "image") return "blank";
+          return "";
+        }
       });
 
       // 8. Render Laporan
@@ -207,7 +218,7 @@ export default function FormLaporan() {
 
     } catch (error: any) {
       console.error(error);
-      alert(`Gagal membuat laporan: ${error.message || "Terjadi kesalahan sistem"}`);
+      alert(`Gagal membuat laporan: ${error.message || "Terjadi kesalahan sistem. Cek konsol."}`);
     } finally {
       setIsGenerating(false);
     }
@@ -285,7 +296,7 @@ export default function FormLaporan() {
           <h2 className="font-bold text-lg mb-4 border-b pb-2">5. Unggah Dokumen & Foto</h2>
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <label className="block font-bold text-red-700 mb-1">📄 File SPK (PDF):</label>
+              <label className="block font-bold text-red-700 mb-1">📄 File WOSS (Gunakan file dengan format PDF, dengan oritentasi potrait):</label>
               <input type="file" accept="application/pdf" className="w-full text-sm" onChange={(e) => handleFileChange(e, "spk_pdf")} />
             </div>
             {[
