@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@slosarek/docxtemplater-image-module-free": "^1.2.0",
+    "@vercel/analytics": "^2.0.1",
     "docxtemplater": "^3.71.0",
     "docxtemplater-image-module-free": "^1.1.1",
     "file-saver": "^2.0.5",

@@ -1,4 +1,5 @@
 "use client";
+import { Analytics } from "@vercel/analytics/react";
 import { useState } from "react";
 import Link from "next/link";
 import PizZip from "pizzip";
