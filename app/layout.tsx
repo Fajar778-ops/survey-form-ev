@@ -49,8 +49,7 @@ export default function RootLayout({
     );
   }
 
-  return (
-    
+   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
@@ -59,8 +58,6 @@ export default function RootLayout({
         {children}
         <Analytics />
       </body>
-    <html lang="en">
-      <body>{children}</body>
     </html>
   );
 }
